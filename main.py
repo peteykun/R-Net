@@ -112,20 +112,34 @@ def evaluate_batch(model, num_batches, eval_file, sess, data_type, handle, str_h
     return metrics, [loss_sum, f1_sum, em_sum]
 
 
-def test(config):
+def test(config, dataset="test"):
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
         char_mat = np.array(json.load(fh), dtype=np.float32)
-    with open(config.test_eval_file, "r") as fh:
+
+    if dataset == "test":
+        test_eval_file = config.test_eval_file
+        test_meta = config.test_meta
+        test_record_file = config.test_record_file
+    elif dataset == "addsent":
+        test_eval_file = config.addsent_eval_file
+        test_meta = config.addsent_meta
+        test_record_file = config.addsent_record_file
+    elif dataset == "addonesent":
+        test_eval_file = config.addonesent_eval_file
+        test_meta = config.addonesent_meta
+        test_record_file = config.addonesent_record_file
+
+    with open(test_eval_file, "r") as fh:
         eval_file = json.load(fh)
-    with open(config.test_meta, "r") as fh:
+    with open(test_meta, "r") as fh:
         meta = json.load(fh)
 
     total = meta["total"]
 
     print("Loading model...")
-    test_batch = get_dataset(config.test_record_file, get_record_parser(
+    test_batch = get_dataset(test_record_file, get_record_parser(
         config, is_test=True), config).make_one_shot_iterator()
 
     model = Model(config, test_batch, word_mat, char_mat, trainable=False)

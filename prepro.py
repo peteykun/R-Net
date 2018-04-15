@@ -209,6 +209,10 @@ def prepro(config):
         config.dev_file, "dev", word_counter, char_counter)
     test_examples, test_eval = process_file(
         config.test_file, "test", word_counter, char_counter)
+    addsent_examples, addsent_eval = process_file(
+        config.addsent_file, "addsent", word_counter, char_counter)
+    addonesent_examples, addonesent_eval = process_file(
+        config.addonesent_file, "addonesent", word_counter, char_counter)
 
     word_emb_file = config.fasttext_file if config.fasttext else config.glove_word_file
     char_emb_file = config.glove_char_file if config.pretrained_char else None
@@ -235,13 +239,21 @@ def prepro(config):
                               config.dev_record_file, word2idx_dict, char2idx_dict)
     test_meta = build_features(config, test_examples, "test",
                                config.test_record_file, word2idx_dict, char2idx_dict, is_test=True)
+    addsent_meta = build_features(config, addsent_examples, "addsent",
+                               config.addsent_record_file, word2idx_dict, char2idx_dict, is_test=True)
+    addonesent_meta = build_features(config, addonesent_examples, "addonesent",
+                               config.addonesent_record_file, word2idx_dict, char2idx_dict, is_test=True)
 
     save(config.word_emb_file, word_emb_mat, message="word embedding")
     save(config.char_emb_file, char_emb_mat, message="char embedding")
     save(config.train_eval_file, train_eval, message="train eval")
     save(config.dev_eval_file, dev_eval, message="dev eval")
     save(config.test_eval_file, test_eval, message="test eval")
+    save(config.addsent_eval_file, addsent_eval, message="addsent eval")
+    save(config.addonesent_eval_file, addonesent_eval, message="addonesent eval")
     save(config.dev_meta, dev_meta, message="dev meta")
     save(config.word2idx_file, word2idx_dict, message="word2idx")
     save(config.char2idx_file, char2idx_dict, message="char2idx")
     save(config.test_meta, test_meta, message="test meta")
+    save(config.addsent_meta, addsent_meta, message="addsent meta")
+    save(config.addonesent_meta, addonesent_meta, message="addonesent meta")

@@ -6,6 +6,7 @@ import ujson as json
 from collections import Counter
 import numpy as np
 import os.path
+import nltk
 
 nlp = spacy.blank("en")
 
@@ -146,6 +147,9 @@ def build_features(config, examples, data_type, out_file, word2idx_dict, char2id
         y1 = np.zeros([para_limit], dtype=np.float32)
         y2 = np.zeros([para_limit], dtype=np.float32)
 
+        entity_mask_c = np.zeros([para_limit], dtype=np.int32)
+        entity_mask_q = np.zeros([ques_limit], dtype=np.int32)
+
         def _get_word(word):
             for each in (word, word.lower(), word.capitalize(), word.upper()):
                 if each in word2idx_dict:
@@ -160,8 +164,20 @@ def build_features(config, examples, data_type, out_file, word2idx_dict, char2id
         for i, token in enumerate(example["context_tokens"]):
             context_idxs[i] = _get_word(token)
 
+        i = 0
+        for word, pos in nltk.pos_tag(example["context_tokens"]):
+            if pos.startswith('N') or pos == 'CD':
+                entity_mask_c[i] = 1
+            i += 1
+
         for i, token in enumerate(example["ques_tokens"]):
             ques_idxs[i] = _get_word(token)
+
+        i = 0
+        for word, pos in nltk.pos_tag(example["ques_tokens"]):
+            if pos.startswith('N') or pos == 'CD':
+                entity_mask_q[i] = 1
+            i += 1
 
         for i, token in enumerate(example["context_chars"]):
             for j, char in enumerate(token):
@@ -185,8 +201,11 @@ def build_features(config, examples, data_type, out_file, word2idx_dict, char2id
                                   "ques_char_idxs": tf.train.Feature(bytes_list=tf.train.BytesList(value=[ques_char_idxs.tostring()])),
                                   "y1": tf.train.Feature(bytes_list=tf.train.BytesList(value=[y1.tostring()])),
                                   "y2": tf.train.Feature(bytes_list=tf.train.BytesList(value=[y2.tostring()])),
-                                  "id": tf.train.Feature(int64_list=tf.train.Int64List(value=[example["id"]]))
+                                  "id": tf.train.Feature(int64_list=tf.train.Int64List(value=[example["id"]])),
+                                  "entity_mask_c": tf.train.Feature(bytes_list=tf.train.BytesList(value=[entity_mask_c.tostring()])),
+                                  "entity_mask_q": tf.train.Feature(bytes_list=tf.train.BytesList(value=[entity_mask_q.tostring()]))
                                   }))
+
         writer.write(record.SerializeToString())
     print("Build {} / {} instances of features in total".format(total, total_))
     meta["total"] = total

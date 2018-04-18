@@ -1,5 +1,6 @@
 import tensorflow as tf
 from func import cudnn_gru, native_gru, dot_attention, summ, dropout, ptr_net
+import sys
 
 
 class Model(object):
@@ -7,7 +8,10 @@ class Model(object):
         self.config = config
         self.global_step = tf.get_variable('global_step', shape=[], dtype=tf.int32,
                                            initializer=tf.constant_initializer(0), trainable=False)
-        self.c, self.q, self.ch, self.qh, self.y1, self.y2, self.qa_id = batch.get_next()
+        self.c, self.q, self.ch, self.qh, self.y1, self.y2, self.qa_id, self.emc, self.emq = batch.get_next()
+        self.c1, self.ch1, self.q1, self.qh1 = self.c, self.ch, self.q, self.qh
+
+
         self.is_train = tf.get_variable(
             "is_train", shape=[], dtype=tf.bool, trainable=False)
         self.word_mat = tf.get_variable("word_mat", initializer=tf.constant(
@@ -32,6 +36,9 @@ class Model(object):
             self.qh = tf.slice(self.qh, [0, 0, 0], [N, self.q_maxlen, CL])
             self.y1 = tf.slice(self.y1, [0, 0], [N, self.c_maxlen])
             self.y2 = tf.slice(self.y2, [0, 0], [N, self.c_maxlen])
+            self.c = tf.slice(self.c, [0, 0], [N, self.c_maxlen])
+            self.emc = tf.slice(self.emc, [0, 0], [N, self.c_maxlen])
+            self.emq = tf.slice(self.emq, [0, 0], [N, self.q_maxlen])
         else:
             self.c_maxlen, self.q_maxlen = config.para_limit, config.ques_limit
 
@@ -87,15 +94,27 @@ class Model(object):
             c_emb = tf.concat([c_emb, ch_emb], axis=2)
             q_emb = tf.concat([q_emb, qh_emb], axis=2)
 
+        c_emb_ent = tf.multiply(c_emb, tf.expand_dims(tf.cast(self.emc, tf.float32), axis=-1))
+        q_emb_ent = tf.multiply(q_emb, tf.expand_dims(tf.cast(self.emq, tf.float32), axis=-1))
+
+        self.c_emb, self.q_emb, self.c_emb_ent, self.q_emb_ent = c_emb, q_emb, c_emb_ent, q_emb_ent
+
         with tf.variable_scope("encoding"):
             rnn = gru(num_layers=3, num_units=d, batch_size=N, input_size=c_emb.get_shape(
             ).as_list()[-1], keep_prob=config.keep_prob, is_train=self.is_train)
             c = rnn(c_emb, seq_len=self.c_len)
             q = rnn(q_emb, seq_len=self.q_len)
 
+        with tf.variable_scope("encoding_ent"):
+            rnn = gru(num_layers=3, num_units=d, batch_size=N, input_size=c_emb.get_shape(
+            ).as_list()[-1], keep_prob=config.keep_prob, is_train=self.is_train)
+            c_ent = rnn(c_emb_ent, seq_len=self.c_len)
+            q_ent = rnn(q_emb_ent, seq_len=self.q_len)
+
         with tf.variable_scope("attention"):
             qc_att = dot_attention(c, q, mask=self.q_mask, hidden=d,
-                                   keep_prob=config.keep_prob, is_train=self.is_train)
+                                   keep_prob=config.keep_prob, is_train=self.is_train, inputs_ent=c_ent,
+                                   memory_ent=q_ent)
             rnn = gru(num_layers=1, num_units=d, batch_size=N, input_size=qc_att.get_shape(
             ).as_list()[-1], keep_prob=config.keep_prob, is_train=self.is_train)
             att = rnn(qc_att, seq_len=self.c_len)
@@ -118,8 +137,10 @@ class Model(object):
             outer = tf.matmul(tf.expand_dims(tf.nn.softmax(logits1), axis=2),
                               tf.expand_dims(tf.nn.softmax(logits2), axis=1))
             outer = tf.matrix_band_part(outer, 0, 15)
-            self.yp1 = tf.argmax(tf.reduce_max(outer, axis=2), axis=1)
-            self.yp2 = tf.argmax(tf.reduce_max(outer, axis=1), axis=1)
+            self.yp1_distrib = tf.reduce_max(outer, axis=2)
+            self.yp2_distrib = tf.reduce_max(outer, axis=1)
+            self.yp1 = tf.argmax(self.yp1_distrib, axis=1)
+            self.yp2 = tf.argmax(self.yp2_distrib, axis=1)
             losses = tf.nn.softmax_cross_entropy_with_logits_v2(
                 logits=logits1, labels=tf.stop_gradient(self.y1))
             losses2 = tf.nn.softmax_cross_entropy_with_logits_v2(

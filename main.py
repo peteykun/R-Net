@@ -3,6 +3,7 @@ import ujson as json
 import numpy as np
 from tqdm import tqdm
 import os
+import sys
 
 from model import Model
 from util import get_record_parser, convert_tokens, evaluate, get_batch_dataset, get_dataset
@@ -155,14 +156,27 @@ def test(config, dataset="test"):
         losses = []
         answer_dict = {}
         remapped_dict = {}
-        for step in tqdm(range(total // config.batch_size + 1)):
-            qa_id, loss, yp1, yp2 = sess.run(
-                [model.qa_id, model.loss, model.yp1, model.yp2])
+        for step in range(total // config.batch_size + 1):
+
+            # c_emb, q_emb, emc, emq, c_emb_ent, q_emb_ent = sess.run([model.c_emb, model.q_emb, model.emc, model.emq, model.c_emb_ent, model.q_emb_ent])
+            # print(np.shape(c_emb), np.shape(q_emb), np.shape(emc), np.shape(emq), np.shape(c_emb_ent), np.shape(q_emb_ent))
+            
+            # while True:
+            #     print('>', end=" ")
+            #     try:
+            #         print(eval(input()))
+            #     except:
+            #         print('You broke something. Try again.')
+
+            qa_id, loss, yp1, yp2, yp1_distrib, yp2_distrib = sess.run(
+                [model.qa_id, model.loss, model.yp1, model.yp2, model.yp1_distrib, model.yp2_distrib])
+
             answer_dict_, remapped_dict_ = convert_tokens(
                 eval_file, qa_id.tolist(), yp1.tolist(), yp2.tolist())
             answer_dict.update(answer_dict_)
             remapped_dict.update(remapped_dict_)
             losses.append(loss)
+
         loss = np.mean(losses)
         metrics = evaluate(eval_file, answer_dict)
         with open(config.answer_file, "w") as fh:

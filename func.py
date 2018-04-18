@@ -168,11 +168,19 @@ def summ(memory, hidden, mask, keep_prob=1.0, is_train=None, scope="summ"):
         return res
 
 
-def dot_attention(inputs, memory, mask, hidden, keep_prob=1.0, is_train=None, scope="dot_attention"):
+def dot_attention(inputs, memory, mask, hidden, keep_prob=1.0, is_train=None, scope="dot_attention", inputs_ent=None, memory_ent=None):
     with tf.variable_scope(scope):
 
-        d_inputs = dropout(inputs, keep_prob=keep_prob, is_train=is_train)
-        d_memory = dropout(memory, keep_prob=keep_prob, is_train=is_train)
+        if inputs_ent is not None:
+            d_inputs = dropout(inputs_ent, keep_prob=keep_prob, is_train=is_train)
+        else:
+            d_inputs = dropout(inputs, keep_prob=keep_prob, is_train=is_train)
+
+        if memory_ent is not None:
+            d_memory = dropout(memory_ent, keep_prob=keep_prob, is_train=is_train)
+        else:
+            d_memory = dropout(memory, keep_prob=keep_prob, is_train=is_train)
+
         JX = tf.shape(inputs)[1]
 
         with tf.variable_scope("attention"):

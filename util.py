@@ -3,6 +3,7 @@ import numpy as np
 import re
 from collections import Counter
 import string
+import sys
 
 
 def get_record_parser(config, is_test=False):
@@ -18,7 +19,9 @@ def get_record_parser(config, is_test=False):
                                                "ques_char_idxs": tf.FixedLenFeature([], tf.string),
                                                "y1": tf.FixedLenFeature([], tf.string),
                                                "y2": tf.FixedLenFeature([], tf.string),
-                                               "id": tf.FixedLenFeature([], tf.int64)
+                                               "id": tf.FixedLenFeature([], tf.int64),
+                                               "entity_mask_c": tf.FixedLenFeature([], tf.string),
+                                               "entity_mask_q": tf.FixedLenFeature([], tf.string)
                                            })
         context_idxs = tf.reshape(tf.decode_raw(
             features["context_idxs"], tf.int32), [para_limit])
@@ -33,7 +36,11 @@ def get_record_parser(config, is_test=False):
         y2 = tf.reshape(tf.decode_raw(
             features["y2"], tf.float32), [para_limit])
         qa_id = features["id"]
-        return context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, y1, y2, qa_id
+        entity_mask_c = tf.reshape(tf.decode_raw(
+            features["entity_mask_c"], tf.int32), [para_limit])
+        entity_mask_q = tf.reshape(tf.decode_raw(
+            features["entity_mask_q"], tf.int32), [ques_limit])
+        return context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, y1, y2, qa_id, entity_mask_c, entity_mask_q
     return parse
 
 

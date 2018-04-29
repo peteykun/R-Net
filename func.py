@@ -5,19 +5,27 @@ INF = 1e30
 
 class cudnn_gru:
 
-    def __init__(self, num_layers, num_units, batch_size, input_size, keep_prob=1.0, is_train=None, scope=None):
+    def __init__(self, num_layers, num_units, batch_size, input_size, keep_prob=1.0, is_train=None, scope=None, super_hacky_reload=False):
         self.num_layers = num_layers
         self.grus = []
         self.inits = []
         self.dropout_mask = []
+        self.init_fw = []
+        self.init_bw = []
         for layer in range(num_layers):
             input_size_ = input_size if layer == 0 else 2 * num_units
             gru_fw = tf.contrib.cudnn_rnn.CudnnGRU(1, num_units)
             gru_bw = tf.contrib.cudnn_rnn.CudnnGRU(1, num_units)
-            init_fw = tf.tile(tf.Variable(
-                tf.zeros([1, 1, num_units])), [1, batch_size, 1])
-            init_bw = tf.tile(tf.Variable(
-                tf.zeros([1, 1, num_units])), [1, batch_size, 1])
+
+            init_fw = tf.Variable(tf.zeros([1, 1, num_units]))
+            init_bw = tf.Variable(tf.zeros([1, 1, num_units]))
+
+            self.init_fw += [init_fw]
+            self.init_bw += [init_bw]
+
+            init_fw = tf.tile(init_fw, [1, batch_size, 1])
+            init_bw = tf.tile(init_bw, [1, batch_size, 1])
+
             mask_fw = dropout(tf.ones([1, batch_size, input_size_], dtype=tf.float32),
                               keep_prob=keep_prob, is_train=is_train, mode=None)
             mask_bw = dropout(tf.ones([1, batch_size, input_size_], dtype=tf.float32),
@@ -164,7 +172,7 @@ def summ(memory, hidden, mask, keep_prob=1.0, is_train=None, scope="summ"):
         return res
 
 
-def dot_attention(inputs, memory, mask, hidden, keep_prob=1.0, is_train=None, scope="dot_attention"):
+def dot_attention(inputs, memory, mask, hidden, keep_prob=1.0, is_train=None, scope="dot_attention", give=False):
     with tf.variable_scope(scope):
 
         d_inputs = dropout(inputs, keep_prob=keep_prob, is_train=is_train)
@@ -187,7 +195,11 @@ def dot_attention(inputs, memory, mask, hidden, keep_prob=1.0, is_train=None, sc
             dim = res.get_shape().as_list()[-1]
             d_res = dropout(res, keep_prob=keep_prob, is_train=is_train)
             gate = tf.nn.sigmoid(dense(d_res, dim, use_bias=False))
-            return res * gate
+
+            if not give:
+                return res * gate
+            else:
+                return res * gate, logits
 
 
 def dense(inputs, hidden, use_bias=True, scope="dense"):

@@ -3,6 +3,7 @@ import ujson as json
 import numpy as np
 from tqdm import tqdm
 import os
+import sys
 
 from model import Model
 from util import get_record_parser, convert_tokens, evaluate, get_batch_dataset, get_dataset
@@ -111,21 +112,35 @@ def evaluate_batch(model, num_batches, eval_file, sess, data_type, handle, str_h
         tag="{}/em".format(data_type), simple_value=metrics["exact_match"]), ])
     return metrics, [loss_sum, f1_sum, em_sum]
 
-
-def test(config):
+def test(config, dataset="test"):
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
         char_mat = np.array(json.load(fh), dtype=np.float32)
-    with open(config.test_eval_file, "r") as fh:
+
+    if dataset == "test":
+        test_eval_file = config.test_eval_file
+        test_meta = config.test_meta
+        test_record_file = config.test_record_file
+    elif dataset == "addsent":
+        print('HELLO')
+        test_eval_file = config.addsent_eval_file
+        test_meta = config.addsent_meta
+        test_record_file = config.addsent_record_file
+    elif dataset == "addonesent":
+        test_eval_file = config.addonesent_eval_file
+        test_meta = config.addonesent_meta
+        test_record_file = config.addonesent_record_file
+
+    with open(test_eval_file, "r") as fh:
         eval_file = json.load(fh)
-    with open(config.test_meta, "r") as fh:
+    with open(test_meta, "r") as fh:
         meta = json.load(fh)
 
     total = meta["total"]
 
     print("Loading model...")
-    test_batch = get_dataset(config.test_record_file, get_record_parser(
+    test_batch = get_dataset(test_record_file, get_record_parser(
         config, is_test=True), config).make_one_shot_iterator()
 
     model = Model(config, test_batch, word_mat, char_mat, trainable=False)
@@ -155,3 +170,117 @@ def test(config):
             json.dump(remapped_dict, fh)
         print("Exact Match: {}, F1: {}".format(
             metrics['exact_match'], metrics['f1']))
+
+# def test(config, dataset="test"):
+#     with open(config.word_emb_file, "r") as fh:
+#         word_mat = np.array(json.load(fh), dtype=np.float32)
+#     with open(config.char_emb_file, "r") as fh:
+#         char_mat = np.array(json.load(fh), dtype=np.float32)
+
+#     if dataset == "test":
+#         test_eval_file = config.test_eval_file
+#         test_meta = config.test_meta
+#         test_record_file = config.test_record_file
+#         test_file = config.test_file
+#     elif dataset == "addsent":
+#         test_eval_file = config.addsent_eval_file
+#         test_meta = config.addsent_meta
+#         test_record_file = config.addsent_record_file
+#         test_file = config.addsent_file
+#     elif dataset == "addonesent":
+#         test_eval_file = config.addonesent_eval_file
+#         test_meta = config.addonesent_meta
+#         test_record_file = config.addonesent_record_file
+#         test_file = config.addonesent_file
+
+#     with open(test_file, 'r') as f:
+#         foo = json.load(f)
+
+#     question_by_id = dict()
+#     answers_by_id = dict()
+
+#     for datum in foo['data']:
+#         for paragraph in datum['paragraphs']:
+#             for qa in paragraph['qas']:
+#                 question_by_id[qa['id']] = qa['question']
+#                 answers_by_id[qa['id']] = qa['answers']
+
+#     with open(test_eval_file, "r") as fh:
+#         eval_file = json.load(fh)
+#     with open(test_meta, "r") as fh:
+#         meta = json.load(fh)
+
+#     total = meta["total"]
+
+#     print("Loading model...")
+#     test_batch = get_dataset(test_record_file, get_record_parser(
+#         config, is_test=True), config).make_one_shot_iterator()
+
+#     model = Model(config, test_batch, word_mat, char_mat, trainable=False)
+
+#     sess_config = tf.ConfigProto(allow_soft_placement=True)
+#     sess_config.gpu_options.allow_growth = True
+
+#     with tf.Session(config=sess_config) as sess:
+#         sess.run(tf.global_variables_initializer())
+#         saver = tf.train.Saver()
+#         print('Restoring', tf.train.latest_checkpoint(config.save_dir))
+#         saver.restore(sess, tf.train.latest_checkpoint(config.save_dir))
+#         sess.run(tf.assign(model.is_train, tf.constant(False, dtype=tf.bool)))
+#         losses = []
+#         answer_dict = {}
+#         remapped_dict = {}
+#         temp_ans = temp_batch = 0
+#         for step in range(total // config.batch_size + 1):
+            
+#             qa_id, yp_distrib1 = sess.run([model.qa_id, tf.nn.softmax(model.yp1_distrib, axis=-1)])
+
+#             """
+#             for idx in range(config.batch_size):
+#                 '''   
+#                 print(idx)
+#                 print(eval_file[str(qa_id[idx])]["context"])
+                
+#                 print(question_by_id[eval_file[str(qa_id[idx])]["uuid"]])
+#                 print(answers_by_id[eval_file[str(qa_id[idx])]["uuid"]])
+#                 '''
+#                 ans_start = []
+#                 for temp in answers_by_id[eval_file[str(qa_id[idx])]["uuid"]]:
+#                     ans_start.append(temp['answer_start'])
+                
+#                 for start in np.argsort(yp_distrib1[idx])[-5:][::-1]:
+#                     start_idx, end_idx = eval_file[str(qa_id[idx])]["spans"][start]
+#                     #print(start_idx, start, eval_file[str(qa_id[idx])]["context"][start_idx:end_idx], yp_distrib1[idx][start])
+                    
+#                     ans_start1 = [abs(x - start_idx) for x in ans_start]
+#                     if min(ans_start1)<=5:
+#                         temp_ans += 1
+#                         break
+                        
+#                 temp_batch += 1
+#                 print("correct ", temp_ans, "out of ", temp_batch)
+#                 print("---")
+                
+#                 #Addonesent : 1419/1792 (Exact Match) 
+#                 #Addonesent : 1438/1792 (+- 5)
+#                 #Addsent : 2612/3584 (Exact Match) 
+#                 #Addsent : 2649/3584 (+- 5) 
+#             '''
+#             """
+            
+#             qa_id, loss, yp1, yp2, yp1_distrib, yp2_distrib = sess.run(
+#                 [model.qa_id, model.loss, model.yp1, model.yp2, model.yp1_distrib, model.yp2_distrib])
+
+#             answer_dict_, remapped_dict_ = convert_tokens(
+#                 eval_file, qa_id.tolist(), yp1.tolist(), yp2.tolist())
+#             answer_dict.update(answer_dict_)
+#             remapped_dict.update(remapped_dict_)
+#             losses.append(loss)
+#             #'''
+
+#         loss = np.mean(losses)
+#         metrics = evaluate(eval_file, answer_dict)
+#         with open(config.answer_file, "w") as fh:
+#             json.dump(remapped_dict, fh)
+#         print("Exact Match: {}, F1: {}".format(
+#             metrics['exact_match'], metrics['f1']))

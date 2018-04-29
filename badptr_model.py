@@ -2,12 +2,12 @@ import tensorflow as tf
 from func import cudnn_gru, native_gru, dot_attention, summ, dropout, ptr_net
 
 
-class Model(object):
+class BadptrModel(object):
     def __init__(self, config, batch, word_mat=None, char_mat=None, trainable=True, opt=True):
         self.config = config
         self.global_step = tf.get_variable('global_step', shape=[], dtype=tf.int32,
                                            initializer=tf.constant_initializer(0), trainable=False)
-        self.c, self.q, self.ch, self.qh, self.y1, self.y2, self.qa_id = batch.get_next()
+        self.c, self.q, self.ch, self.qh, self.qa_id, self.y1, self.y2 = batch.get_next()
         self.is_train = tf.get_variable(
             "is_train", shape=[], dtype=tf.bool, trainable=False)
         self.word_mat = tf.get_variable("word_mat", initializer=tf.constant(
@@ -45,8 +45,9 @@ class Model(object):
         if trainable:
             self.lr = tf.get_variable(
                 "lr", shape=[], dtype=tf.float32, trainable=False)
-            self.opt = tf.train.AdadeltaOptimizer(
-                learning_rate=self.lr, epsilon=1e-6)
+            #self.opt = tf.train.AdadeltaOptimizer(
+            #    learning_rate=self.lr, epsilon=1e-6)
+            self.opt = tf.train.AdamOptimizer()
             grads = self.opt.compute_gradients(self.loss)
             gradients, variables = zip(*grads)
             capped_grads, _ = tf.clip_by_global_norm(
@@ -84,45 +85,41 @@ class Model(object):
                 c_emb = tf.nn.embedding_lookup(self.word_mat, self.c)
                 q_emb = tf.nn.embedding_lookup(self.word_mat, self.q)
 
-            self.c_emb = c_emb = tf.concat([c_emb, ch_emb], axis=2)
+            c_emb = tf.concat([c_emb, ch_emb], axis=2)
             q_emb = tf.concat([q_emb, qh_emb], axis=2)
+
+            self.c_emb = tf.stop_gradient(c_emb)
+            self.q_emb = tf.stop_gradient(q_emb)
 
         with tf.variable_scope("encoding"):
             rnn = gru(num_layers=3, num_units=d, batch_size=N, input_size=c_emb.get_shape(
             ).as_list()[-1], keep_prob=config.keep_prob, is_train=self.is_train)
-            c = rnn(c_emb, seq_len=self.c_len)
-            q = rnn(q_emb, seq_len=self.q_len)
+            self.c_rnn = c = rnn(c_emb, seq_len=self.c_len)
+            self.q_rnn = q = rnn(q_emb, seq_len=self.q_len)
 
-        self.c_ck = c
-        self.q_ck = c
+            c = tf.stop_gradient(c)
+            q = tf.stop_gradient(q)
 
         with tf.variable_scope("attention"):
-            qc_att, self.qc_att = dot_attention(c, q, mask=self.q_mask, hidden=d,
-                                   keep_prob=config.keep_prob, is_train=self.is_train, give=True)
+            qc_att = dot_attention(c, q, mask=self.q_mask, hidden=d,
+                                   keep_prob=config.keep_prob, is_train=self.is_train)
             rnn = gru(num_layers=1, num_units=d, batch_size=N, input_size=qc_att.get_shape(
             ).as_list()[-1], keep_prob=config.keep_prob, is_train=self.is_train)
-            att = rnn(qc_att, seq_len=self.c_len)
-            self.att = att
+            
+            self.att = [rnn(qc_att, seq_len=self.c_len)]
+            self.att += [self.att[-1][:,-1,:]]
+        
+        with tf.variable_scope("binary"):
+            for _ in range(3):
+                self.att += [tf.nn.dropout(tf.keras.layers.Dense(300)(self.att[-1]), keep_prob=config.keep_prob)]
 
-        self.att_ck = att
-
-        with tf.variable_scope("match"):
-            self_att = dot_attention(
-                att, att, mask=self.c_mask, hidden=d, keep_prob=config.keep_prob, is_train=self.is_train)
-            rnn = gru(num_layers=1, num_units=d, batch_size=N, input_size=self_att.get_shape(
-            ).as_list()[-1], keep_prob=config.keep_prob, is_train=self.is_train)
-            match = rnn(self_att, seq_len=self.c_len)
-
-        self.match_ck = match
-
-        with tf.variable_scope("pointer"):
-            init = summ(q[:, :, -2 * d:], d, mask=self.q_mask,
-                        keep_prob=config.ptr_keep_prob, is_train=self.is_train)
+        with tf.variable_scope("badptr"):
+            init = self.att[-1]
             pointer = ptr_net(batch=N, hidden=init.get_shape().as_list(
             )[-1], keep_prob=config.ptr_keep_prob, is_train=self.is_train)
-            logits1, logits2 = pointer(init, match, d, self.c_mask)
+            logits1, logits2 = pointer(init, self.att[0], d, self.c_mask)
 
-        with tf.variable_scope("predict"):
+        with tf.variable_scope("badptr_predict"):
             outer = tf.matmul(tf.expand_dims(tf.nn.softmax(logits1), axis=2),
                               tf.expand_dims(tf.nn.softmax(logits2), axis=1))
             outer = tf.matrix_band_part(outer, 0, 15)
